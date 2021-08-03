@@ -453,6 +453,44 @@ InitOpenSSLRSAPublicKey(OBJECT      *key,     // IN
     return retVal;
 }
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+
+static void DoRSACheckKey(const BIGNUM *P, const BIGNUM *Q, const BIGNUM *N,
+                          const BIGNUM *E, const BIGNUM *D)
+{
+    EVP_PKEY *mykey;
+    EVP_PKEY_CTX *ctx;
+    static int disp;
+
+    if (!DO_RSA_CHECK_KEY)
+        return;
+    if (!disp) {
+        fprintf(stderr, "RSA key checking is enabled\n");
+        disp = 1;
+    }
+
+    mykey = EVP_PKEY_new();
+    ctx = EVP_PKEY_CTX_new(mykey, NULL);
+    if (!mykey || !ctx ||
+        !EVP_PKEY_set_bn_param(mykey, OSSL_PKEY_PARAM_RSA_N, N) ||
+        !EVP_PKEY_set_bn_param(mykey, OSSL_PKEY_PARAM_RSA_E, E) ||
+        !EVP_PKEY_set_bn_param(mykey, OSSL_PKEY_PARAM_RSA_D, D) ||
+        !EVP_PKEY_set_bn_param(mykey, OSSL_PKEY_PARAM_RSA_FACTOR1, P) ||
+        !EVP_PKEY_set_bn_param(mykey, OSSL_PKEY_PARAM_RSA_FACTOR2, Q)) {
+        fprintf(stderr, "Setting the RSA key components failed. STOP.");
+        while(1);
+    }
+    if (!EVP_PKEY_check(ctx) != 1) {
+        fprintf(stderr, "Detected bad RSA key. STOP.\n");
+        while (1);
+    }
+
+    EVP_PKEY_free(mykey);
+    EVP_PKEY_CTX_free(ctx);
+}
+
+#else
+
 static void DoRSACheckKey(const BIGNUM *P, const BIGNUM *Q, const BIGNUM *N,
                           const BIGNUM *E, const BIGNUM *D)
 {
@@ -475,6 +513,8 @@ static void DoRSACheckKey(const BIGNUM *P, const BIGNUM *Q, const BIGNUM *N,
     }
     RSA_free(mykey);
 }
+
+#endif
 
 LIB_EXPORT TPM_RC
 InitOpenSSLRSAPrivateKey(OBJECT     *rsaKey,   // IN
