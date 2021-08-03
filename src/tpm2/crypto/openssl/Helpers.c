@@ -481,8 +481,13 @@ InitOpenSSLRSAPrivateKey(OBJECT     *rsaKey,   // IN
                          EVP_PKEY  **pkey      // OUT
                         )
 {
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    BIGNUM       *N = NULL;
+    BIGNUM       *E = NULL;
+#else
     const BIGNUM *N = NULL;
     const BIGNUM *E = NULL;
+#endif
     BIGNUM       *P = NULL;
     BIGNUM       *Q = NULL;
     BIGNUM       *Qr = NULL;
@@ -492,7 +497,9 @@ InitOpenSSLRSAPrivateKey(OBJECT     *rsaKey,   // IN
     BIGNUM       *dQ = BN_new();
     BIGNUM       *qInv = BN_new();
 #endif
+#if !(OPENSSL_VERSION_NUMBER >= 0x30000000L)
     RSA          *key;
+#endif
     BN_CTX       *ctx = NULL;
     TPM_RC        retVal = InitOpenSSLRSAPublicKey(rsaKey, pkey);
 
@@ -507,10 +514,16 @@ InitOpenSSLRSAPrivateKey(OBJECT     *rsaKey,   // IN
     if (P == NULL)
         ERROR_RETURN(TPM_RC_FAILURE)
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    if (!EVP_PKEY_get_bn_param(*pkey, OSSL_PKEY_PARAM_RSA_N, &N) ||
+        !EVP_PKEY_get_bn_param(*pkey, OSSL_PKEY_PARAM_RSA_E, &E))
+        ERROR_RETURN(TPM_RC_FAILURE);
+#else
     key = EVP_PKEY_get0_RSA(*pkey);
     if (key == NULL)
         ERROR_RETURN(TPM_RC_FAILURE);
     RSA_get0_key(key, &N, &E, NULL);
+#endif
 
     D = ExpDCacheFind(P, N, E, &Q);
     if (D == NULL) {
@@ -530,8 +543,13 @@ InitOpenSSLRSAPrivateKey(OBJECT     *rsaKey,   // IN
             ERROR_RETURN(TPM_RC_FAILURE);
         ExpDCacheAdd(P, N, E, Q, D);
     }
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    if (!EVP_PKEY_set_bn_param(*pkey, OSSL_PKEY_PARAM_RSA_D, D))
+        ERROR_RETURN(TPM_RC_FAILURE);
+#else
     if (RSA_set0_key(key, NULL, NULL, D) != 1)
         ERROR_RETURN(TPM_RC_FAILURE);
+#endif
 
     DoRSACheckKey(P, Q, N, E, D);
 
@@ -554,6 +572,10 @@ InitOpenSSLRSAPrivateKey(OBJECT     *rsaKey,   // IN
     BN_clear_free(P);
     BN_clear_free(Q);
     BN_free(Qr);
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    BN_free(N);
+    BN_free(E);
+#endif
 
     if (retVal != TPM_RC_SUCCESS) {
         BN_clear_free(D);
