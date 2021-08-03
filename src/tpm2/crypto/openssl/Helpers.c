@@ -414,15 +414,23 @@ InitOpenSSLRSAPublicKey(OBJECT      *key,     // IN
                        )
 {
     TPM_RC      retVal;
+#if !(OPENSSL_VERSION_NUMBER >= 0x30000000L)
     RSA        *rsakey = RSA_new();
+#endif
     BIGNUM     *N = NULL;
     BIGNUM     *E = BN_new();
     BN_ULONG    eval;
 
     *pkey = EVP_PKEY_new();
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    if (*pkey == NULL || E == NULL ||
+        EVP_PKEY_set_type(*pkey, EVP_PKEY_RSA) != 1)
+        ERROR_RETURN(TPM_RC_FAILURE);
+#else
     if (rsakey == NULL || *pkey == NULL || E == NULL)
         ERROR_RETURN(TPM_RC_FAILURE);
+#endif
 
     if(key->publicArea.parameters.rsaDetail.exponent != 0)
         eval = key->publicArea.parameters.rsaDetail.exponent;
@@ -435,17 +443,28 @@ InitOpenSSLRSAPublicKey(OBJECT      *key,     // IN
     N = BN_bin2bn(key->publicArea.unique.rsa.b.buffer,
                   key->publicArea.unique.rsa.b.size, NULL);
     if (N == NULL ||
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+        !EVP_PKEY_set_bn_param(*pkey, OSSL_PKEY_PARAM_RSA_N, N) ||
+        !EVP_PKEY_set_bn_param(*pkey, OSSL_PKEY_PARAM_RSA_E, E))
+#else
         RSA_set0_key(rsakey, N, E, NULL) != 1 ||
         EVP_PKEY_assign_RSA(*pkey, rsakey) == 0)
+#endif
         ERROR_RETURN(TPM_RC_FAILURE)
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#error Missing
+#else
     RSA_set_flags(rsakey, RSA_FLAG_NO_BLINDING);
+#endif
 
     retVal = TPM_RC_SUCCESS;
 
  Exit:
     if (retVal != TPM_RC_SUCCESS) {
+#if !(OPENSSL_VERSION_NUMBER >= 0x30000000L)
         RSA_free(rsakey);
+#endif
         EVP_PKEY_free(*pkey);
         *pkey = NULL;
     }
