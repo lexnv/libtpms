@@ -569,6 +569,75 @@ InitOpenSSLRSAPrivateKey(OBJECT     *rsaKey,   // IN
     return retVal;
 }
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+
+LIB_EXPORT TPM_RC
+OpenSSLCryptRsaGenerateKey(
+		    OBJECT              *rsaKey,            // IN/OUT: The object structure in which
+		    //          the key is created.
+		    UINT32               e,
+		    int                  keySizeInBits
+		    )
+{
+    TPMT_PUBLIC         *publicArea = &rsaKey->publicArea;
+    TPMT_SENSITIVE      *sensitive = &rsaKey->sensitive;
+    TPM_RC               retVal = TPM_RC_SUCCESS;
+    int                  rc;
+    EVP_PKEY            *rsa_key = NULL;
+    EVP_PKEY_CTX        *ctx;
+    const BIGNUM        *bnP = NULL;
+    const BIGNUM        *bnN = NULL;
+    BIGNUM              *bnE = BN_new();
+    BN_RSA(tmp);
+    OSSL_PARAM           rsa_keygen_params[] = {
+        OSSL_PARAM_bn(OSSL_PKEY_PARAM_RSA_E, bnE),
+        OSSL_PARAM_int(OSSL_PKEY_PARAM_RSA_BITS, keySizeInBits),
+        OSSL_PARAM_END
+    };
+
+    if (bnE == NULL || BN_set_word(bnE, e) != 1)
+        ERROR_RETURN(TPM_RC_FAILURE);
+
+    // Need to initialize the privateExponent structure
+    RsaInitializeExponent(&rsaKey->privateExponent);
+
+    ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, NULL);
+    if (ctx == NULL)
+        ERROR_RETURN(TPM_RC_FAILURE);
+
+    if (EVP_PKEY_CTX_set_params(ctx, rsa_keygen_params) != 1)
+        ERROR_RETURN(TPM_RC_FAILURE);
+
+    if (EVP_PKEY_keygen_init(ctx) != 1)
+        ERROR_RETURN(TPM_RC_FAILURE);
+
+    if (EVP_PKEY_keygen(ctx, &rsa_key) != 1)
+        ERROR_RETURN(TPM_RC_NO_RESULT);
+
+    if (!EVP_PKEY_get_bn_param(rsa_key, OSSL_PKEY_PARAM_RSA_N, &bnN) ||
+        !EVP_PKEY_get_bn_param(rsa_key, OSSL_PKEY_PARAM_RSA_P, &bnP))
+        ERROR_RETURN(TPM_RC_FAILURE);
+
+    OsslToTpmBn(tmp, bnN);
+    BnTo2B((bigNum)tmp, &publicArea->unique.rsa.b, 0);
+
+    OsslToTpmBn(tmp, bnP);
+    BnTo2B((bigNum)tmp, &sensitive->sensitive.rsa.b, 0);
+
+    // CryptRsaGenerateKey calls ComputePrivateExponent; we have to call
+    // it via CryptRsaLoadPrivateExponent
+    retVal = CryptRsaLoadPrivateExponent(rsaKey);
+
+ Exit:
+    BN_free(bnE);
+    EVP_PKEY_CTX_free(ctx);
+    EVP_PKEY_free(rsa_key);
+
+    return retVal;
+}
+
+#else
+
 LIB_EXPORT TPM_RC
 OpenSSLCryptRsaGenerateKey(
 		    OBJECT              *rsaKey,            // IN/OUT: The object structure in which
@@ -620,5 +689,7 @@ OpenSSLCryptRsaGenerateKey(
 
     return retVal;
 }
+
+#endif
 
 #endif // USE_OPENSSL_FUNCTIONS_RSA
